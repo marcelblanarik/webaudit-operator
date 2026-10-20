@@ -7,7 +7,7 @@ on:
 permissions: {}
 
 jobs:
-  test-e2e:
+  test-chart:
     permissions:
       contents: read
     name: Run on Ubuntu
@@ -25,54 +25,37 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install the latest version of kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Create kind cluster
-        run: kind create cluster
-
-      - name: Prepare webaudit-operator
-        run: |
-          go mod tidy
-          make docker-build
-          kind load docker-image $IMG
-
       - name: Install Helm
-        run: make install-helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
 
       - name: Lint Helm Chart
+        run: helm lint ./dist/chart
+
+      - name: Check the ServiceMonitor toggle
         run: |
-          helm lint ./dist/chart
+          default=$(helm template webaudit ./dist/chart)
+          enabled=$(helm template webaudit ./dist/chart --set prometheus.enabled=true)
+          if grep -q 'kind: ServiceMonitor' <<<"$default"; then
+            echo "ServiceMonitor must not render by default"; exit 1
+          fi
+          grep -q 'kind: ServiceMonitor' <<<"$enabled" || { echo "prometheus.enabled=true must render a ServiceMonitor"; exit 1; }
 
-# TODO: Uncomment if cert-manager is enabled
-#      - name: Install cert-manager via Helm (wait for readiness)
-#        run: |
-#          helm repo add jetstack https://charts.jetstack.io
-#          helm repo update
-#          helm install cert-manager jetstack/cert-manager \
-#            --namespace cert-manager \
-#            --create-namespace \
-#            --set crds.enabled=true \
-#            --wait \
-#            --timeout 300s
+      - name: Create kind cluster
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: chart-test
 
-# TODO: Uncomment if Prometheus is enabled
-#      - name: Install Prometheus Operator CRDs
-#        run: |
-#          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-#          helm repo update
-#          helm install prometheus-crds prometheus-community/prometheus-operator-crds
+      - name: Build the manager image and load it into kind
+        run: |
+          make docker-build
+          kind load docker-image "$IMG" --name chart-test
 
+      # The audit image is not needed: no WebAudit is created, so no audit Job runs.
       - name: Deploy manager via Helm
-        run: |
-          make helm-deploy
+        run: make helm-deploy
 
       - name: Check Helm release status
-        run: |
-          make helm-status
+        run: make helm-status

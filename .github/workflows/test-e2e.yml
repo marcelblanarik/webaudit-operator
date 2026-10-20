@@ -23,15 +23,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install the latest version of kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+      # Only the kind binary is installed here; `make test-e2e` creates the cluster itself.
+      - name: Install kind
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          install_only: true
+          version: v0.33.0
 
-      - name: Verify kind installation
-        run: kind version
-
+      # Builds the manager and the Lighthouse audit image, then runs real audits
+      # in the cluster. Takes several minutes.
       - name: Running Test e2e
         run: |
           go mod tidy

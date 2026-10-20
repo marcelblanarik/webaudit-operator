@@ -9,7 +9,7 @@ Kubernetes operator that runs scheduled web performance audits.
 - Kind: WebAudit (resource: webaudits.webaudit.simpleit.sk)
 - Init commands:
   kubebuilder init --domain simpleit.sk --repo github.com/marcelblanarik/webaudit-operator --license none
-  kubebuilder create api --group webaudit --version v1alpha1 --kind WebAudit
+  kubebuilder create api --group webaudit --version v1alpha1 --kind WebAudit --resource --controller
 
 ## Design
 - WebAudit spec: target URL, schedule, thresholds (e.g. LCP < 2.5s), optional custom image
