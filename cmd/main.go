@@ -9,10 +9,16 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -20,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	webauditv1alpha1 "github.com/marcelblanarik/webaudit-operator/api/v1alpha1"
+	"github.com/marcelblanarik/webaudit-operator/internal/audit"
 	"github.com/marcelblanarik/webaudit-operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -46,6 +53,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var defaultAuditImage string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -66,6 +74,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&defaultAuditImage, "default-audit-image", "ghcr.io/marcelblanarik/webaudit-lighthouse:latest",
+		"The image used to run audits when a WebAudit does not set spec.image.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -142,13 +152,26 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	// Cache only the Jobs and Pods this operator creates (they carry the WebAudit label)
+	// instead of every Job and Pod in the cluster.
+	auditObjects, err := labels.NewRequirement(audit.WebAuditLabel, selection.Exists, nil)
+	if err != nil {
+		setupLog.Error(err, "Failed to build cache selector")
+		os.Exit(1)
+	}
+	auditOnly := cache.ByObject{Label: labels.NewSelector().Add(*auditObjects)}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "3e2fdd8f.simpleit.sk",
+		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
+			&corev1.Pod{}:  auditOnly,
+			&batchv1.Job{}: auditOnly,
+		}},
+		LeaderElection:   enableLeaderElection,
+		LeaderElectionID: "3e2fdd8f.simpleit.sk",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -167,8 +190,10 @@ func main() {
 	}
 
 	if err := (&controller.WebAuditReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Recorder:     mgr.GetEventRecorderFor("webaudit"), //nolint:staticcheck // new events API returns a different recorder type than the reconciler's record.EventRecorder
+		DefaultImage: defaultAuditImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "webaudit")
 		os.Exit(1)

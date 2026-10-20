@@ -8,3 +8,8 @@ metadata:
 spec:
   url: https://example.com
   schedule: "0 * * * *"
+  formFactor: mobile
+  thresholds:
+    lcp: 2500ms
+    cls: "0.1"
+    tbt: 200ms
