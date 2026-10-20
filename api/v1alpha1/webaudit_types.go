@@ -127,6 +127,7 @@ type WebAuditStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 52",message="metadata.name must be at most 52 characters"
 // +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.spec.url`
 // +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
 // +kubebuilder:printcolumn:name="ThresholdsMet",type=string,JSONPath=`.status.conditions[?(@.type=="ThresholdsMet")].status`

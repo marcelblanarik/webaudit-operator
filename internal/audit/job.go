@@ -42,6 +42,7 @@ func BuildJob(wa *v1alpha1.WebAudit, fire time.Time, defaultImage string) *batch
 	if wa.Spec.Image != "" {
 		image = wa.Spec.Image
 	}
+	// The name is capped to 52 chars by CRD validation, so it is a valid label value.
 	labels := map[string]string{WebAuditLabel: wa.Name}
 
 	return &batchv1.Job{

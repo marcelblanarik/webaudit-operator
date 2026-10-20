@@ -2,8 +2,10 @@ package v1alpha1_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	webauditv1alpha1 "github.com/marcelblanarik/webaudit-operator/api/v1alpha1"
@@ -69,5 +71,19 @@ func TestScheduleRequired(t *testing.T) {
 		newAudit(webauditv1alpha1.WebAuditSpec{URL: "https://example.com"}))
 	if err == nil {
 		t.Fatal("expected empty schedule to be rejected")
+	}
+}
+
+func TestNameLength(t *testing.T) {
+	spec := webauditv1alpha1.WebAuditSpec{URL: "https://example.com", Schedule: "0 * * * *"}
+	ok := newAudit(spec)
+	ok.GenerateName, ok.Name = "", strings.Repeat("a", 52)
+	if err := k8sClient.Create(context.Background(), ok); err != nil {
+		t.Fatalf("52-char name rejected: %v", err)
+	}
+	long := newAudit(spec)
+	long.GenerateName, long.Name = "", strings.Repeat("b", 53)
+	if err := k8sClient.Create(context.Background(), long); !apierrors.IsInvalid(err) {
+		t.Fatalf("53-char name: want Invalid error, got %v", err)
 	}
 }
