@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- webaudit_v1alpha1_webaudit.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
