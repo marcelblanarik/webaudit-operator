@@ -3,6 +3,7 @@ package audit
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -15,6 +16,10 @@ const maxFireIterations = 100000
 var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func parse(schedule string) (cron.Schedule, error) {
+	// cron honours these prefixes before any parser option; schedules are UTC-only.
+	if strings.HasPrefix(schedule, "TZ=") || strings.HasPrefix(schedule, "CRON_TZ=") {
+		return nil, fmt.Errorf("invalid schedule %q: timezone prefixes are not supported, schedules are UTC", schedule)
+	}
 	s, err := parser.Parse(schedule)
 	if err != nil {
 		return nil, fmt.Errorf("invalid schedule %q: %w", schedule, err)
@@ -28,7 +33,11 @@ func NextFire(schedule string, after time.Time) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return s.Next(after.UTC()), nil
+	next := s.Next(after.UTC())
+	if next.IsZero() {
+		return time.Time{}, fmt.Errorf("schedule %q never fires", schedule)
+	}
+	return next, nil
 }
 
 // MostRecentFire returns the latest fire time in (since, now], at most one however many were missed.

@@ -15,7 +15,8 @@ func TestNextFire(t *testing.T) {
 }
 
 func TestNextFireInvalid(t *testing.T) {
-	for _, s := range []string{"* * *", "@every 1h", "@hourly", "0 0 * * * *", "61 * * * *", ""} {
+	for _, s := range []string{"* * *", "@every 1h", "@hourly", "0 0 * * * *", "61 * * * *", "",
+		"CRON_TZ=Europe/Bratislava 0 9 * * *", "TZ=UTC 0 9 * * *", "CRON_TZ=UTC 0 9 * * *"} {
 		if _, err := NextFire(s, utc(10, 0)); err == nil {
 			t.Errorf("%q: expected error", s)
 		}
@@ -51,5 +52,27 @@ func TestMostRecentFireInvalidAndCap(t *testing.T) {
 	// every minute over ~100 days exceeds the 100000-iteration cap
 	if _, _, err := MostRecentFire("* * * * *", utc(0, 0), utc(0, 0).AddDate(0, 0, 100)); err == nil {
 		t.Error("expected cap error")
+	}
+}
+
+func TestNextFireNeverFires(t *testing.T) {
+	// Feb 30 parses but never fires; cron returns the zero time, which must not leak out.
+	if got, err := NextFire("0 0 30 2 *", utc(10, 0)); err == nil {
+		t.Errorf("expected error, got %v", got)
+	}
+}
+
+func TestMostRecentFireRejectsTimezonePrefix(t *testing.T) {
+	for _, s := range []string{"CRON_TZ=Europe/Bratislava 0 9 * * *", "TZ=UTC 0 9 * * *"} {
+		if _, _, err := MostRecentFire(s, utc(10, 0), utc(11, 0)); err == nil {
+			t.Errorf("%q: expected error", s)
+		}
+	}
+}
+
+func TestMostRecentFireNeverFires(t *testing.T) {
+	_, ok, err := MostRecentFire("0 0 30 2 *", utc(10, 0), utc(11, 0))
+	if err != nil || ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
 	}
 }
