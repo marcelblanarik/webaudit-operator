@@ -200,7 +200,7 @@ var _ = Describe("Manager", Ordered, func() {
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
-			Expect(createCurlMetricsPod(token)).To(Succeed(), "Failed to create curl-metrics pod")
+			Expect(createCurlMetricsPod(token, "-v -k")).To(Succeed(), "Failed to create curl-metrics pod")
 
 			By("waiting for the curl-metrics pod to complete.")
 			verifyCurlUp := func(g Gomega) {
@@ -355,14 +355,18 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				g.Expect(scrapeMetrics(g, token)).NotTo(ContainSubstring(`name="e2e-pass"`))
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
+				m := scrapeMetrics(g, token)
+				// positive control: e2e-breach (created by the previous ordered spec) is still exported
+				g.Expect(m).To(ContainSubstring(series("webaudit_threshold_met", "e2e-breach") + " 0"))
+				g.Expect(m).NotTo(ContainSubstring(`name="e2e-pass"`))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 })
 
-// createCurlMetricsPod starts the curl-metrics pod, which fetches the metrics endpoint once with token.
-func createCurlMetricsPod(token string) error {
+// createCurlMetricsPod starts the curl-metrics pod, which fetches the metrics endpoint once with token,
+// retrying for up to a minute; curlFlags are passed to curl.
+func createCurlMetricsPod(token, curlFlags string) error {
 	cmd := exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
 		"--namespace", namespace,
 		"--image=curlimages/curl:latest",
@@ -374,7 +378,7 @@ func createCurlMetricsPod(token string) error {
 					"image": "curlimages/curl:latest",
 					"command": ["/bin/sh", "-c"],
 					"args": [
-						"for i in $(seq 1 30); do curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1"
+						"for i in $(seq 1 30); do curl %s -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1"
 					],
 					"securityContext": {
 						"readOnlyRootFilesystem": true,
@@ -391,22 +395,29 @@ func createCurlMetricsPod(token string) error {
 				}],
 				"serviceAccountName": "%s"
 			}
-		}`, token, metricsServiceName, namespace, serviceAccountName))
+		}`, curlFlags, token, metricsServiceName, namespace, serviceAccountName))
 	_, err := utils.Run(cmd)
 	return err
 }
 
-// scrapeMetrics re-runs the curl-metrics pod and returns its output (headers and metrics body).
+// scrapeMetrics re-runs the curl-metrics pod and returns the metrics body. It fails on any unhealthy
+// scrape (HTTP error via curl -f, or a body without the always-present reconcile counter), so absence
+// checks cannot pass vacuously.
 func scrapeMetrics(g Gomega, token string) string {
 	_, err := utils.Run(exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found"))
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(createCurlMetricsPod(token)).To(Succeed())
+	g.Expect(createCurlMetricsPod(token, "-sS -f -k")).To(Succeed())
 	g.Eventually(func() (string, error) {
 		return utils.Run(exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace,
 			"-o", "jsonpath={.status.phase}"))
-	}, time.Minute, time.Second).Should(Equal("Succeeded"))
+	}, 2*time.Minute, time.Second).Should(BeElementOf("Succeeded", "Failed"))
 	out, err := getMetricsOutput()
 	g.Expect(err).NotTo(HaveOccurred())
+	phase, err := utils.Run(exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace,
+		"-o", "jsonpath={.status.phase}"))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(phase).To(Equal("Succeeded"), "metrics scrape failed:\n%s", out)
+	g.Expect(out).To(ContainSubstring("# TYPE controller_runtime_reconcile_total"), "no metrics body:\n%s", out)
 	return out
 }
 
