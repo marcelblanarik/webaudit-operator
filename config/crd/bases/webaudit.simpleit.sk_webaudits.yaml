@@ -14,7 +14,20 @@ spec:
     singular: webaudit
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.url
+      name: URL
+      type: string
+    - jsonPath: .spec.schedule
+      name: Schedule
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="ThresholdsMet")].status
+      name: ThresholdsMet
+      type: string
+    - jsonPath: .status.lastRun.startTime
+      name: LastRun
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: WebAudit is the Schema for the webaudits API
@@ -39,10 +52,50 @@ spec:
           spec:
             description: spec defines the desired state of WebAudit
             properties:
-              foo:
-                description: foo is an example field of WebAudit. Edit webaudit_types.go
-                  to remove/update
+              formFactor:
+                default: mobile
+                description: formFactor selects mobile or desktop emulation.
+                enum:
+                - mobile
+                - desktop
                 type: string
+              image:
+                description: image overrides the default audit image.
+                type: string
+              schedule:
+                description: schedule is a 5-field cron expression, evaluated in UTC.
+                minLength: 1
+                type: string
+              thresholds:
+                description: thresholds are the pass/fail limits for the audit.
+                properties:
+                  cls:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: cls is the maximum Cumulative Layout Shift, e.g.
+                      "0.1".
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  lcp:
+                    description: lcp is the maximum Largest Contentful Paint, e.g.
+                      2500ms.
+                    type: string
+                  tbt:
+                    description: tbt is the maximum Total Blocking Time, e.g. 200ms.
+                    type: string
+                type: object
+              url:
+                description: url is the page to audit. Only http and https URLs are
+                  accepted.
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: url must be an http(s) URL with a host
+                  rule: self.matches('^https?://[^/\\s]+')
+            required:
+            - schedule
+            - url
             type: object
           status:
             description: status defines the observed state of WebAudit
@@ -50,14 +103,7 @@ spec:
               conditions:
                 description: |-
                   conditions represent the current state of the WebAudit resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  Types are Ready and ThresholdsMet.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +162,53 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastRun:
+                description: lastRun is the most recent finished audit.
+                properties:
+                  cls:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: cls is the measured Cumulative Layout Shift.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  completionTime:
+                    description: completionTime is when the Job finished.
+                    format: date-time
+                    type: string
+                  jobName:
+                    description: jobName is the name of the Job that produced this
+                      result.
+                    type: string
+                  lcp:
+                    description: lcp is the measured Largest Contentful Paint.
+                    type: string
+                  message:
+                    description: message carries a human-readable result or failure
+                      detail.
+                    type: string
+                  passed:
+                    description: passed reports whether all configured thresholds
+                      were met. Unset if the audit itself failed.
+                    type: boolean
+                  startTime:
+                    description: startTime is when the Job started.
+                    format: date-time
+                    type: string
+                  tbt:
+                    description: tbt is the measured Total Blocking Time.
+                    type: string
+                required:
+                - jobName
+                type: object
+              nextRunTime:
+                description: nextRunTime is when the next audit is scheduled.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the spec generation last reconciled.
+                format: int64
+                type: integer
             type: object
         required:
         - spec

@@ -38,7 +38,7 @@ var _ = Describe("WebAudit Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: webauditv1alpha1.WebAuditSpec{URL: "https://example.com", Schedule: "0 * * * *"},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
