@@ -190,8 +190,9 @@ func main() {
 	}
 
 	if err := (&controller.WebAuditReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
 		//nolint:staticcheck // new events API returns a different recorder type than the reconciler's record.EventRecorder
 		Recorder:     mgr.GetEventRecorderFor("webaudit"),
 		DefaultImage: defaultAuditImage,

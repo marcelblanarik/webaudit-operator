@@ -58,6 +58,8 @@ func BuildJob(wa *v1alpha1.WebAudit, fire time.Time, defaultImage string) *batch
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
+					// The audit loads arbitrary pages in a no-sandbox Chromium; it needs no API access.
+					AutomountServiceAccountToken: new(false),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   new(true),
 						RunAsUser:      new(auditUID),

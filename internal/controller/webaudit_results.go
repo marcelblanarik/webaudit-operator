@@ -103,16 +103,23 @@ func (r *WebAuditReconciler) recordResult(ctx context.Context, wa *webauditv1alp
 }
 
 // readTerminationMessage returns the termination message of the audit container of the Job's Pod.
+// A cache miss is retried uncached: the Job's Complete event can arrive before the Pod's terminated status.
 func (r *WebAuditReconciler) readTerminationMessage(ctx context.Context, job *batchv1.Job) (string, bool, error) {
-	var pods corev1.PodList
-	if err := r.List(ctx, &pods, client.InNamespace(job.Namespace),
-		client.MatchingLabels{"job-name": job.Name}); err != nil {
-		return "", false, err
+	readers := []client.Reader{r.Client}
+	if r.APIReader != nil {
+		readers = append(readers, r.APIReader)
 	}
-	for _, p := range pods.Items {
-		for _, cs := range p.Status.ContainerStatuses {
-			if cs.Name == audit.AuditContainer && cs.State.Terminated != nil {
-				return cs.State.Terminated.Message, true, nil
+	for _, rd := range readers {
+		var pods corev1.PodList
+		if err := rd.List(ctx, &pods, client.InNamespace(job.Namespace),
+			client.MatchingLabels{"job-name": job.Name}); err != nil {
+			return "", false, err
+		}
+		for _, p := range pods.Items {
+			for _, cs := range p.Status.ContainerStatuses {
+				if cs.Name == audit.AuditContainer && cs.State.Terminated != nil {
+					return cs.State.Terminated.Message, true, nil
+				}
 			}
 		}
 	}

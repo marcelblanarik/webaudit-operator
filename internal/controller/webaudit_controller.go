@@ -30,6 +30,8 @@ const missedRunWindow = 60 * 24 * time.Hour
 // WebAuditReconciler reconciles a WebAudit object
 type WebAuditReconciler struct {
 	client.Client
+	// APIReader reads uncached; nil falls back to the cached Client.
+	APIReader    client.Reader
 	Scheme       *runtime.Scheme
 	Recorder     record.EventRecorder
 	DefaultImage string

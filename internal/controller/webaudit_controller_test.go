@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -225,6 +226,20 @@ var _ = Describe("WebAudit Controller", func() {
 		Expect(recorder.Events).To(Receive(HavePrefix("Normal ThresholdsMet")))
 	})
 
+	It("reads the Pod through the API reader when the cache has not seen it yet", func() {
+		r.Client = staleCacheClient{k8sClient}
+		r.APIReader = k8sClient
+		lcp := metav1.Duration{Duration: 2500 * time.Millisecond}
+		job := runOnce(webauditv1alpha1.Thresholds{LCP: &lcp})
+		completeJob(job)
+		terminatedPod(job, `{"lcpMs":2000,"tbtMs":100,"cls":0.05}`)
+		reconcileOnce()
+
+		c := condition(webauditv1alpha1.ConditionThresholdsMet)
+		Expect(c.Reason).To(Equal(webauditv1alpha1.ReasonThresholdsMet))
+		Expect(getWA().Status.LastRun.Passed).To(HaveValue(BeTrue()))
+	})
+
 	It("(e) a failed Job without a Pod sets ThresholdsMet=Unknown/AuditFailed", func() {
 		job := runOnce(webauditv1alpha1.Thresholds{})
 		failJob(job)
@@ -322,6 +337,16 @@ var _ = Describe("WebAudit Controller", func() {
 		Expect(seriesFor(key)).To(BeZero())
 	})
 })
+
+// staleCacheClient simulates an informer cache that has not received the audit Pod yet.
+type staleCacheClient struct{ client.Client }
+
+func (c staleCacheClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*corev1.PodList); ok {
+		return nil
+	}
+	return c.Client.List(ctx, list, opts...)
+}
 
 // seriesFor counts webaudit_* series labelled with key in the controller-runtime registry.
 func seriesFor(key types.NamespacedName) int {

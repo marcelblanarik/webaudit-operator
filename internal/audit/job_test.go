@@ -116,6 +116,9 @@ func TestBuildJobPodSecurityContext(t *testing.T) {
 		sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 || sc.Capabilities.Drop[0] != "ALL" {
 		t.Fatalf("container security context = %+v", sc)
 	}
+	if p.AutomountServiceAccountToken == nil || *p.AutomountServiceAccountToken {
+		t.Fatalf("automountServiceAccountToken = %v, want false", p.AutomountServiceAccountToken)
+	}
 }
 
 func TestBuildJobPodVolumes(t *testing.T) {
