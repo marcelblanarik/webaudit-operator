@@ -12,6 +12,10 @@ RUN apt-get update \
 
 COPY entrypoint.mjs extract.mjs /app/
 
+LABEL org.opencontainers.image.source="https://github.com/marcelblanarik/webaudit-operator" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.description="Lighthouse audit image for webaudit-operator: runs one audit and writes LCP, TBT and CLS to the termination message"
+
 # uid/gid 1000 is the built-in "node" user. At runtime the root fs is read-only and /tmp is the only writable path.
 USER 1000:1000
 ENV HOME=/tmp CHROME_PATH=/usr/bin/chromium

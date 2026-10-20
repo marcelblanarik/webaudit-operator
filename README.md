@@ -71,6 +71,15 @@ Metrics are served on the manager's metrics endpoint. All carry the labels `name
 - The WebAudit name may be at most 52 characters.
 - A single Lighthouse run in a container is noisy. Give thresholds headroom.
 
+## Operating notes and limits
+
+- **No resource requests or limits.** Audit Pods run as BestEffort, so results are noisier under CPU contention. A ResourceQuota that requires requests rejects the Pod, and a LimitRange default limit can OOM-kill Chromium; either way the run ends as `AuditFailed` after the 300s deadline. Create WebAudits in a namespace without such constraints, or with a LimitRange that suits Chromium.
+- **SSRF is out of scope.** Anyone who can create a WebAudit can make the cluster fetch any URL reachable from that namespace, including in-cluster Services. No NetworkPolicy ships. Restrict WebAudit creation with RBAC and consider an egress NetworkPolicy for the audit Pods (label `webaudit.simpleit.sk/name`).
+- **Metrics are in memory.** After an operator restart or leader change the `webaudit_*` series are absent until each WebAudit's next run, so give `absent()` alerts a grace period. `status.lastRun` still holds the last result.
+- **Failure diagnosis.** An audit that cannot start (for example `ImagePullBackOff` or unschedulable) only shows up as `AuditFailed` after the 300s deadline. Inspect `kubectl describe job/pod` and the logs of the retained Jobs (up to 3).
+- **Helm `rbac.namespaced=true` is not supported** (the manager caches cluster-wide). Leave it `false`.
+- **Maintainers:** GHCR packages are private by default. After the first release, make the packages public (the `org.opencontainers.image.source` label links them to this repository) before the anonymous `helm install` and image pulls above work.
+
 ## Development
 
 Needs Go (see `go.mod`), Docker, kind, kubectl, helm and Node 22 for the audit image tests.

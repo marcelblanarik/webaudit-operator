@@ -13,7 +13,7 @@ Kubernetes operator that runs scheduled web performance audits.
 
 ## Design
 - WebAudit spec: target URL, schedule, thresholds (e.g. LCP < 2.5s), optional custom image
-- Operator runs Lighthouse in a Kubernetes Job (or CronJob) per audit
+- Operator creates one Kubernetes Job per scheduled run itself (no CronJob) and runs Lighthouse in it
 - Results go into the resource status and Prometheus metrics
 - Own container image: pinned Chromium + `lighthouse` npm package on Node >= 22.19
   (Lighthouse 13 requirement), with --headless --no-sandbox --disable-dev-shm-usage
