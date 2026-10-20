@@ -1,0 +1,61 @@
+name: Test Chart
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  test-chart:
+    permissions:
+      contents: read
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    env:
+      IMG: controller:latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Lint Helm Chart
+        run: helm lint ./dist/chart
+
+      - name: Check the ServiceMonitor toggle
+        run: |
+          default=$(helm template webaudit ./dist/chart)
+          enabled=$(helm template webaudit ./dist/chart --set prometheus.enabled=true)
+          if grep -q 'kind: ServiceMonitor' <<<"$default"; then
+            echo "ServiceMonitor must not render by default"; exit 1
+          fi
+          grep -q 'kind: ServiceMonitor' <<<"$enabled" || { echo "prometheus.enabled=true must render a ServiceMonitor"; exit 1; }
+
+      - name: Create kind cluster
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: chart-test
+
+      - name: Build the manager image and load it into kind
+        run: |
+          make docker-build
+          kind load docker-image "$IMG" --name chart-test
+
+      # The audit image is not needed: no WebAudit is created, so no audit Job runs.
+      - name: Deploy manager via Helm
+        run: make helm-deploy
+
+      - name: Check Helm release status
+        run: make helm-status

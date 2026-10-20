@@ -1,0 +1,38 @@
+name: E2E Tests
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  test-e2e:
+    permissions:
+      contents: read
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      # Only the kind binary is installed here; `make test-e2e` creates the cluster itself.
+      - name: Install kind
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          install_only: true
+          version: v0.33.0
+
+      # Builds the manager and the Lighthouse audit image, then runs real audits
+      # in the cluster. Takes several minutes.
+      - name: Running Test e2e
+        run: |
+          go mod tidy
+          make test-e2e

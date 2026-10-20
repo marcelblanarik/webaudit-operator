@@ -1,0 +1,15 @@
+apiVersion: webaudit.simpleit.sk/v1alpha1
+kind: WebAudit
+metadata:
+  labels:
+    app.kubernetes.io/name: webaudit-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: webaudit-sample
+spec:
+  url: https://example.com
+  schedule: "0 * * * *"
+  formFactor: mobile
+  thresholds:
+    lcp: 2500ms
+    cls: "0.1"
+    tbt: 200ms

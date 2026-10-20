@@ -1,0 +1,64 @@
+name: Audit Image
+
+on:
+  push:
+    paths:
+      - 'images/lighthouse/**'
+      - '.github/workflows/audit-image.yml'
+  pull_request:
+    paths:
+      - 'images/lighthouse/**'
+      - '.github/workflows/audit-image.yml'
+  # Weekly, so an aged-out Chromium pin (ARG CHROMIUM_VERSION) fails here and not at release time.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  unit:
+    permissions:
+      contents: read
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # Quoted glob: the bare directory form fails on Node 24.
+      - name: Run tests
+        run: node --test 'images/lighthouse/*.test.mjs'
+
+  build:
+    permissions:
+      contents: read
+    name: Build (amd64 and arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Build only, nothing is pushed. arm64 runs under QEMU and is slow.
+      - name: Build the audit image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: images/lighthouse
+          platforms: linux/amd64,linux/arm64
+          push: false

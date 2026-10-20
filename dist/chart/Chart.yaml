@@ -1,0 +1,15 @@
+apiVersion: v2
+name: webaudit-operator
+description: Kubernetes operator that runs scheduled Lighthouse web performance audits (WebAudit resources)
+kubeVersion: ">=1.31.0-0"
+type: application
+
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - kubernetes
+  - operator
+
+annotations:
+  kubebuilder.io/generated-by: kubebuilder
