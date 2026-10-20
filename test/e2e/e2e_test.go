@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -199,37 +200,7 @@ var _ = Describe("Manager", Ordered, func() {
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
-			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
-				"--namespace", namespace,
-				"--image=curlimages/curl:latest",
-				"--overrides",
-				fmt.Sprintf(`{
-					"spec": {
-						"containers": [{
-							"name": "curl",
-							"image": "curlimages/curl:latest",
-							"command": ["/bin/sh", "-c"],
-							"args": [
-								"for i in $(seq 1 30); do curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1"
-							],
-							"securityContext": {
-								"readOnlyRootFilesystem": true,
-								"allowPrivilegeEscalation": false,
-								"capabilities": {
-									"drop": ["ALL"]
-								},
-								"runAsNonRoot": true,
-								"runAsUser": 1000,
-								"seccompProfile": {
-									"type": "RuntimeDefault"
-								}
-							}
-						}],
-						"serviceAccountName": "%s"
-					}
-				}`, token, metricsServiceName, namespace, serviceAccountName))
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create curl-metrics pod")
+			Expect(createCurlMetricsPod(token)).To(Succeed(), "Failed to create curl-metrics pod")
 
 			By("waiting for the curl-metrics pod to complete.")
 			verifyCurlUp := func(g Gomega) {
@@ -253,18 +224,191 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("WebAudit", Ordered, func() {
+		const auditNS = "webaudit-e2e"
+		var token string
+
+		BeforeAll(func() {
+			By("creating the audit namespace with the restricted Pod Security level")
+			_, err := utils.Run(exec.Command("kubectl", "create", "ns", auditNS))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = utils.Run(exec.Command("kubectl", "label", "--overwrite", "ns", auditNS,
+				"pod-security.kubernetes.io/enforce=restricted"))
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deploying the nginx audit target")
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-n", auditNS, "-f", "test/e2e/testdata/nginx.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = utils.Run(exec.Command("kubectl", "rollout", "status", "deployment/nginx",
+				"-n", auditNS, "--timeout=3m"))
+			Expect(err).NotTo(HaveOccurred())
+
+			token, err = serviceAccountToken()
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		AfterAll(func() {
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", auditNS, "--ignore-not-found", "--wait=false"))
+		})
+
+		AfterEach(func() {
+			if !CurrentSpecReport().Failed() {
+				return
+			}
+			for _, args := range [][]string{
+				{"get", "webaudits", "-n", auditNS, "-o", "yaml"},
+				{"describe", "jobs", "-n", auditNS},
+				{"describe", "pods", "-n", auditNS},
+				{"logs", "-n", auditNS, "-l", "webaudit.simpleit.sk/name", "--tail=50"},
+				{"get", "events", "-n", auditNS, "--sort-by=.lastTimestamp"},
+				{"logs", "-n", namespace, "-l", "control-plane=controller-manager", "--tail=200"},
+			} {
+				out, _ := utils.Run(exec.Command("kubectl", args...))
+				_, _ = fmt.Fprintf(GinkgoWriter, "kubectl %s:\n%s\n", strings.Join(args, " "), out)
+			}
+		})
+
+		applyWebAudit := func(name, lcp string) {
+			manifest := fmt.Sprintf(`apiVersion: webaudit.simpleit.sk/v1alpha1
+kind: WebAudit
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  url: http://nginx.%s.svc
+  schedule: "* * * * *"
+  formFactor: desktop
+  image: webaudit-lighthouse:dev
+  thresholds:
+    lcp: %s
+    tbt: 5s
+    cls: "1"
+`, name, auditNS, auditNS, lcp)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		field := func(g Gomega, name, jsonpath string) string {
+			out, err := utils.Run(exec.Command("kubectl", "get", "webaudit", name, "-n", auditNS,
+				"-o", "jsonpath="+jsonpath))
+			g.Expect(err).NotTo(HaveOccurred())
+			return out
+		}
+
+		series := func(metric, name string) string {
+			return fmt.Sprintf(`%s{name="%s",namespace="%s"}`, metric, name, auditNS)
+		}
+
+		It("records a passing audit", func() {
+			applyWebAudit("e2e-pass", "10s")
+
+			By("waiting for a recorded passing run")
+			Eventually(func(g Gomega) {
+				g.Expect(field(g, "e2e-pass", "{.status.lastRun.passed}")).To(Equal("true"))
+				g.Expect(field(g, "e2e-pass", `{.status.conditions[?(@.type=="ThresholdsMet")].status}`)).
+					To(Equal("True"))
+				g.Expect(field(g, "e2e-pass", "{.status.lastRun.lcp}")).NotTo(BeEmpty())
+			}, 8*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("checking the audit Job is owned by the WebAudit and its Pod ran in the restricted namespace")
+			out, err := utils.Run(exec.Command("kubectl", "get", "jobs", "-n", auditNS,
+				"-l", "webaudit.simpleit.sk/name=e2e-pass", "-o",
+				"jsonpath={.items[0].metadata.ownerReferences[0].kind}/{.items[0].metadata.ownerReferences[0].name}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(Equal("WebAudit/e2e-pass"))
+			out, err = utils.Run(exec.Command("kubectl", "get", "pods", "-n", auditNS,
+				"-l", "webaudit.simpleit.sk/name=e2e-pass", "-o", "jsonpath={.items[*].status.phase}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("Succeeded"))
+
+			By("checking the operator metrics")
+			Eventually(func(g Gomega) {
+				m := scrapeMetrics(g, token)
+				g.Expect(m).To(ContainSubstring(series("webaudit_lcp_seconds", "e2e-pass")))
+				g.Expect(m).To(ContainSubstring(series("webaudit_threshold_met", "e2e-pass") + " 1"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("records a breach", func() {
+			applyWebAudit("e2e-breach", "1ms")
+
+			By("waiting for a recorded breaching run")
+			Eventually(func(g Gomega) {
+				g.Expect(field(g, "e2e-breach", "{.status.lastRun.passed}")).To(Equal("false"))
+				g.Expect(field(g, "e2e-breach",
+					`{.status.conditions[?(@.type=="ThresholdsMet")].status}/{.status.conditions[?(@.type=="ThresholdsMet")].reason}`)).
+					To(Equal("False/ThresholdsBreached"))
+			}, 8*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("checking the operator metrics")
+			Eventually(func(g Gomega) {
+				g.Expect(scrapeMetrics(g, token)).To(ContainSubstring(series("webaudit_threshold_met", "e2e-breach") + " 0"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("forgets the metric series of a deleted WebAudit", func() {
+			_, err := utils.Run(exec.Command("kubectl", "delete", "webaudit", "e2e-pass", "-n", auditNS))
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				g.Expect(scrapeMetrics(g, token)).NotTo(ContainSubstring(`name="e2e-pass"`))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
 	})
 })
+
+// createCurlMetricsPod starts the curl-metrics pod, which fetches the metrics endpoint once with token.
+func createCurlMetricsPod(token string) error {
+	cmd := exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
+		"--namespace", namespace,
+		"--image=curlimages/curl:latest",
+		"--overrides",
+		fmt.Sprintf(`{
+			"spec": {
+				"containers": [{
+					"name": "curl",
+					"image": "curlimages/curl:latest",
+					"command": ["/bin/sh", "-c"],
+					"args": [
+						"for i in $(seq 1 30); do curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1"
+					],
+					"securityContext": {
+						"readOnlyRootFilesystem": true,
+						"allowPrivilegeEscalation": false,
+						"capabilities": {
+							"drop": ["ALL"]
+						},
+						"runAsNonRoot": true,
+						"runAsUser": 1000,
+						"seccompProfile": {
+							"type": "RuntimeDefault"
+						}
+					}
+				}],
+				"serviceAccountName": "%s"
+			}
+		}`, token, metricsServiceName, namespace, serviceAccountName))
+	_, err := utils.Run(cmd)
+	return err
+}
+
+// scrapeMetrics re-runs the curl-metrics pod and returns its output (headers and metrics body).
+func scrapeMetrics(g Gomega, token string) string {
+	_, err := utils.Run(exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found"))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(createCurlMetricsPod(token)).To(Succeed())
+	g.Eventually(func() (string, error) {
+		return utils.Run(exec.Command("kubectl", "get", "pod", "curl-metrics", "-n", namespace,
+			"-o", "jsonpath={.status.phase}"))
+	}, time.Minute, time.Second).Should(Equal("Succeeded"))
+	out, err := getMetricsOutput()
+	g.Expect(err).NotTo(HaveOccurred())
+	return out
+}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,6 +19,8 @@ import (
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/webaudit-operator:v0.0.1"
+	// auditImage is the Lighthouse audit image; built from images/lighthouse only if absent locally.
+	auditImage = "webaudit-lighthouse:dev"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -34,10 +37,25 @@ func TestE2E(t *testing.T) {
 	RunSpecs(t, "e2e suite")
 }
 
+// serviceMonitorCRDURL is the ServiceMonitor CRD that config/default needs (config/prometheus).
+const serviceMonitorCRDURL = "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/" +
+	"v0.77.1/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
+
 var _ = BeforeSuite(func() {
+	By("refusing to run against anything but the e2e kind cluster")
+	cluster := os.Getenv("KIND_CLUSTER")
+	if cluster == "" {
+		cluster = "webaudit-operator-test-e2e"
+	}
+	out, err := utils.Run(exec.Command("kubectl", "config", "current-context"))
+	Expect(err).NotTo(HaveOccurred(), "Failed to read the current kube context")
+	if ctx := strings.TrimSpace(out); ctx != "kind-"+cluster {
+		Fail(fmt.Sprintf("current kube context is %q, expected %q: refusing to run e2e", ctx, "kind-"+cluster))
+	}
+
 	By("building the manager image")
 	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
-	_, err := utils.Run(cmd)
+	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
 
 	// TODO(user): If you want to change the e2e test vendor from Kind,
@@ -45,6 +63,19 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+
+	if _, err = utils.Run(exec.Command("docker", "image", "inspect", auditImage)); err != nil {
+		By("building the audit image")
+		_, err = utils.Run(exec.Command("docker", "build", "-t", auditImage, "images/lighthouse"))
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the audit image")
+	}
+	By("loading the audit image on Kind")
+	err = utils.LoadImageToKindClusterWithName(auditImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the audit image into Kind")
+
+	By("installing the ServiceMonitor CRD")
+	_, err = utils.Run(exec.Command("kubectl", "apply", "--server-side", "-f", serviceMonitorCRDURL))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install the ServiceMonitor CRD")
 
 	configureKubectlKubeRC()
 	setupCertManager()
