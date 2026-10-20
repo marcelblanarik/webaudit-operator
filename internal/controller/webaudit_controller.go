@@ -24,6 +24,9 @@ import (
 // keepFinishedJobs is how many finished Jobs survive pruning.
 const keepFinishedJobs = 3
 
+// missedRunWindow bounds how far back a missed fire is looked for.
+const missedRunWindow = 60 * 24 * time.Hour
+
 // WebAuditReconciler reconciles a WebAudit object
 type WebAuditReconciler struct {
 	client.Client
@@ -88,6 +91,10 @@ func (r *WebAuditReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		since := wa.CreationTimestamp.Time
 		if len(jobs) > 0 {
 			since = fireTime(&jobs[0])
+		}
+		// Older missed fires are dropped (at most one run after downtime); 60d of every-minute fires = 86400, under MostRecentFire's cap of 100000.
+		if lb := now.Add(-missedRunWindow); since.Before(lb) {
+			since = lb
 		}
 		fire, due, err = audit.MostRecentFire(wa.Spec.Schedule, since, now)
 	}

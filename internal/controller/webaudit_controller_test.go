@@ -263,6 +263,16 @@ var _ = Describe("WebAudit Controller", func() {
 		Expect(condition(webauditv1alpha1.ConditionReady).Reason).To(Equal(webauditv1alpha1.ReasonInvalidSchedule))
 	})
 
+	It("runs once after a 70-day gap instead of reporting InvalidSchedule", func() {
+		createWA("* * * * *", webauditv1alpha1.Thresholds{})
+		now = now.Add(70 * 24 * time.Hour)
+		reconcileOnce()
+		ready := condition(webauditv1alpha1.ConditionReady)
+		Expect(ready.Reason).To(Equal(webauditv1alpha1.ReasonScheduled))
+		Expect(ready.Status).To(Equal(metav1.ConditionTrue))
+		Expect(listJobs()).To(HaveLen(1))
+	})
+
 	It("(h) creates no new Job while one is active", func() {
 		runOnce(webauditv1alpha1.Thresholds{})
 		now = now.Add(3 * time.Minute)
