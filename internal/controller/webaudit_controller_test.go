@@ -23,7 +23,10 @@ import (
 	"github.com/marcelblanarik/webaudit-operator/internal/audit"
 )
 
-const testNamespace = "default"
+const (
+	testNamespace = "default"
+	testImage     = "audit:test"
+)
 
 var waCounter int
 
@@ -43,7 +46,7 @@ var _ = Describe("WebAudit Controller", func() {
 			Client:       k8sClient,
 			Scheme:       k8sClient.Scheme(),
 			Recorder:     recorder,
-			DefaultImage: "audit:test",
+			DefaultImage: testImage,
 			Now:          func() time.Time { return now },
 		}
 	})
@@ -124,14 +127,14 @@ var _ = Describe("WebAudit Controller", func() {
 			},
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,
-				Containers:    []corev1.Container{{Name: audit.AuditContainer, Image: "audit:test"}},
+				Containers:    []corev1.Container{{Name: audit.AuditContainer, Image: testImage}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 		pod.Status.Phase = corev1.PodSucceeded
 		pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
 			Name:  audit.AuditContainer,
-			Image: "audit:test",
+			Image: testImage,
 			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Message: message}},
 		}}
 		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
@@ -286,7 +289,7 @@ var _ = Describe("WebAudit Controller", func() {
 		var want []string
 		for i := 1; i <= 5; i++ {
 			fire := base.Add(time.Duration(i) * time.Minute)
-			job := audit.BuildJob(wa, fire, "audit:test")
+			job := audit.BuildJob(wa, fire, testImage)
 			Expect(ctrl.SetControllerReference(wa, job, k8sClient.Scheme())).To(Succeed())
 			Expect(k8sClient.Create(ctx, job)).To(Succeed())
 			failJob(job)
@@ -297,8 +300,9 @@ var _ = Describe("WebAudit Controller", func() {
 		}
 		reconcileOnce()
 
-		var names []string
-		for _, j := range listJobs() {
+		jobs := listJobs()
+		names := make([]string, 0, len(jobs))
+		for _, j := range jobs {
 			names = append(names, j.Name)
 		}
 		Expect(names).To(ConsistOf(want))

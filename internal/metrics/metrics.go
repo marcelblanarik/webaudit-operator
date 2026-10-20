@@ -21,7 +21,12 @@ const (
 	OutcomeBreach  Outcome = "breach"
 )
 
-var keyLabels = []string{"namespace", "name"}
+const (
+	labelNamespace = "namespace"
+	labelName      = "name"
+)
+
+var keyLabels = []string{labelNamespace, labelName}
 
 func gaugeVec(name, help string) *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: name, Help: help}, keyLabels)
@@ -36,7 +41,7 @@ var (
 	runsTotal    = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "webaudit_runs_total",
 		Help: "Audit runs by result (success, failed, breach).",
-	}, []string{"namespace", "name", "result"})
+	}, []string{labelNamespace, labelName, "result"})
 )
 
 func init() {
@@ -62,7 +67,7 @@ func ObserveRun(key types.NamespacedName, o Outcome, r *audit.Result, at time.Ti
 
 // Forget removes every series belonging to key, including all result values of the counter.
 func Forget(key types.NamespacedName) {
-	l := prometheus.Labels{"namespace": key.Namespace, "name": key.Name}
+	l := prometheus.Labels{labelNamespace: key.Namespace, labelName: key.Name}
 	for _, c := range []interface{ DeletePartialMatch(prometheus.Labels) int }{
 		lcpSeconds, cls, tbtSeconds, thresholdMet, lastRun, runsTotal,
 	} {

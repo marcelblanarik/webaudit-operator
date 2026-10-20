@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -164,7 +164,7 @@ func (r *WebAuditReconciler) ownedJobs(ctx context.Context, wa *webauditv1alpha1
 			jobs = append(jobs, j)
 		}
 	}
-	sort.Slice(jobs, func(a, b int) bool { return fireTime(&jobs[a]).After(fireTime(&jobs[b])) })
+	slices.SortStableFunc(jobs, func(a, b batchv1.Job) int { return fireTime(&b).Compare(fireTime(&a)) })
 	return jobs, nil
 }
 

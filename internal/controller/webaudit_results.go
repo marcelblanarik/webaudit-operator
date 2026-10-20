@@ -12,7 +12,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	webauditv1alpha1 "github.com/marcelblanarik/webaudit-operator/api/v1alpha1"
@@ -92,12 +91,12 @@ func (r *WebAuditReconciler) recordResult(ctx context.Context, wa *webauditv1alp
 	lr.CLS = resource.NewScaledQuantity(int64(math.Round(res.CLS*1e9)), resource.Nano)
 
 	if breaches := audit.Breaches(wa.Spec.Thresholds, res); len(breaches) > 0 {
-		lr.Passed = ptr.To(false)
+		lr.Passed = new(false)
 		lr.Message = strings.Join(breaches, "; ")
 		r.setCondition(wa, webauditv1alpha1.ConditionThresholdsMet, metav1.ConditionFalse, webauditv1alpha1.ReasonThresholdsBreached, lr.Message)
 		return run{corev1.EventTypeWarning, webauditv1alpha1.ReasonThresholdsBreached, lr.Message, metrics.OutcomeBreach, &res}, nil
 	}
-	lr.Passed = ptr.To(true)
+	lr.Passed = new(true)
 	lr.Message = "all thresholds met"
 	r.setCondition(wa, webauditv1alpha1.ConditionThresholdsMet, metav1.ConditionTrue, webauditv1alpha1.ReasonThresholdsMet, lr.Message)
 	return run{corev1.EventTypeNormal, webauditv1alpha1.ReasonThresholdsMet, lr.Message, metrics.OutcomeSuccess, &res}, nil

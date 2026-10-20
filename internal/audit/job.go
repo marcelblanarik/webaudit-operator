@@ -8,7 +8,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"github.com/marcelblanarik/webaudit-operator/api/v1alpha1"
 )
@@ -53,16 +52,16 @@ func BuildJob(wa *v1alpha1.WebAudit, fire time.Time, defaultImage string) *batch
 			Annotations: map[string]string{FireTimeAnnotation: fire.UTC().Format(time.RFC3339)},
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:          ptr.To(int32(0)),
-			ActiveDeadlineSeconds: ptr.To(int64(300)),
+			BackoffLimit:          new(int32(0)),
+			ActiveDeadlineSeconds: new(int64(300)),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   ptr.To(true),
-						RunAsUser:      ptr.To(auditUID),
-						RunAsGroup:     ptr.To(auditUID),
+						RunAsNonRoot:   new(true),
+						RunAsUser:      new(auditUID),
+						RunAsGroup:     new(auditUID),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Volumes: []corev1.Volume{{
@@ -78,8 +77,8 @@ func BuildJob(wa *v1alpha1.WebAudit, fire time.Time, defaultImage string) *batch
 						},
 						VolumeMounts: []corev1.VolumeMount{{Name: "tmp", MountPath: "/tmp"}},
 						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: ptr.To(false),
-							ReadOnlyRootFilesystem:   ptr.To(true),
+							AllowPrivilegeEscalation: new(false),
+							ReadOnlyRootFilesystem:   new(true),
 							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 						},
 						TerminationMessagePath:   "/dev/termination-log",

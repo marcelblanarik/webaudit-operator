@@ -11,6 +11,11 @@ import (
 	webauditv1alpha1 "github.com/marcelblanarik/webaudit-operator/api/v1alpha1"
 )
 
+const (
+	testURL      = "https://example.com"
+	testSchedule = "0 * * * *"
+)
+
 func newAudit(spec webauditv1alpha1.WebAuditSpec) *webauditv1alpha1.WebAudit {
 	return &webauditv1alpha1.WebAudit{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "t-", Namespace: "default"},
@@ -34,7 +39,7 @@ func TestURLValidation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.url, func(t *testing.T) {
 			err := k8sClient.Create(context.Background(),
-				newAudit(webauditv1alpha1.WebAuditSpec{URL: tc.url, Schedule: "0 * * * *"}))
+				newAudit(webauditv1alpha1.WebAuditSpec{URL: tc.url, Schedule: testSchedule}))
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("url %q: wantErr=%v, got err=%v", tc.url, tc.wantErr, err)
 			}
@@ -43,7 +48,7 @@ func TestURLValidation(t *testing.T) {
 }
 
 func TestFormFactorDefault(t *testing.T) {
-	wa := newAudit(webauditv1alpha1.WebAuditSpec{URL: "https://example.com", Schedule: "0 * * * *"})
+	wa := newAudit(webauditv1alpha1.WebAuditSpec{URL: testURL, Schedule: testSchedule})
 	if err := k8sClient.Create(context.Background(), wa); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +63,7 @@ func TestFormFactorEnum(t *testing.T) {
 		"tablet":                           true,
 	} {
 		err := k8sClient.Create(context.Background(), newAudit(webauditv1alpha1.WebAuditSpec{
-			URL: "https://example.com", Schedule: "0 * * * *", FormFactor: ff,
+			URL: testURL, Schedule: testSchedule, FormFactor: ff,
 		}))
 		if (err != nil) != wantErr {
 			t.Fatalf("formFactor %q: wantErr=%v, got err=%v", ff, wantErr, err)
@@ -68,14 +73,14 @@ func TestFormFactorEnum(t *testing.T) {
 
 func TestScheduleRequired(t *testing.T) {
 	err := k8sClient.Create(context.Background(),
-		newAudit(webauditv1alpha1.WebAuditSpec{URL: "https://example.com"}))
+		newAudit(webauditv1alpha1.WebAuditSpec{URL: testURL}))
 	if err == nil {
 		t.Fatal("expected empty schedule to be rejected")
 	}
 }
 
 func TestNameLength(t *testing.T) {
-	spec := webauditv1alpha1.WebAuditSpec{URL: "https://example.com", Schedule: "0 * * * *"}
+	spec := webauditv1alpha1.WebAuditSpec{URL: testURL, Schedule: testSchedule}
 	ok := newAudit(spec)
 	ok.GenerateName, ok.Name = "", strings.Repeat("a", 52)
 	if err := k8sClient.Create(context.Background(), ok); err != nil {

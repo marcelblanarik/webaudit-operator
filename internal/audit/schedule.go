@@ -48,7 +48,7 @@ func MostRecentFire(schedule string, since, now time.Time) (fire time.Time, ok b
 	}
 	now = now.UTC()
 	t := since.UTC()
-	for i := 0; i < maxFireIterations; i++ {
+	for range maxFireIterations {
 		n := s.Next(t)
 		if n.IsZero() || n.After(now) {
 			return fire, ok, nil

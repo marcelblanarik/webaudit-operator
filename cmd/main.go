@@ -190,9 +190,10 @@ func main() {
 	}
 
 	if err := (&controller.WebAuditReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		Recorder:     mgr.GetEventRecorderFor("webaudit"), //nolint:staticcheck // new events API returns a different recorder type than the reconciler's record.EventRecorder
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		//nolint:staticcheck // new events API returns a different recorder type than the reconciler's record.EventRecorder
+		Recorder:     mgr.GetEventRecorderFor("webaudit"),
 		DefaultImage: defaultAuditImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "webaudit")
